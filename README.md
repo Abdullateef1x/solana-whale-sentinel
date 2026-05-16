@@ -1,147 +1,262 @@
-# 🐋 WhaleWatch — Solana Frontier Hackathon
+# 🐋 Solana Whale Sentinel
 
-> Real-time on-chain whale signal detection with a Bloomberg-grade trading terminal UI.
+Real-time Solana whale intelligence terminal built for active traders, analysts, and on-chain researchers.
 
----
+Solana Whale Sentinel combines live whale transaction monitoring, smart money analytics, token safety scoring, and institutional-grade market visualization into a Bloomberg/TradingView-style interface powered by Birdeye, QuickNode, and Supabase Edge Functions.
 
-## Overview
-
-WhaleWatch monitors Solana DEX activity in real time, surfaces large-wallet ("whale") swap events, and presents them inside a dense, data-rich trading terminal. It was built during the **Solana Frontier Hackathon** by combining two complementary layers:
-
-| Layer | Origin | Role |
-|---|---|---|
-| Terminal UI | Architected on **Eitherway** | Bloomberg-style React/Tailwind dashboard |
-| On-chain & market data | Custom logic | Deep partner integrations (Birdeye · QuickNode · Solflare) |
+Built for **Birdeye Data BIP Competition — Sprint 4 (May 9 – May 16, 2026).**
 
 ---
 
-## Architecture
+# ✨ What Makes This Different?
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Browser / Client                      │
-│                                                         │
-│  ┌──────────────┐   ┌──────────────┐  ┌─────────────┐  │
-│  │ PriceChart   │   │ useMarketData│  │ Signal Feed │  │
-│  │ (real OHLCV) │   │ (live prices)│  │ (WebSocket) │  │
-│  └──────┬───────┘   └──────┬───────┘  └──────┬──────┘  │
-└─────────┼──────────────────┼─────────────────┼─────────┘
-          │                  │                 │
-          ▼                  ▼                 ▼
-   Birdeye /defi/ohlcv  Birdeye /defi/   Backend API
-                        multi_price      (Express + Socket.IO)
-                                              │
-                              ┌───────────────┼───────────────┐
-                              ▼               ▼               ▼
-                         QuickNode        QuickNode       Telegram
-                         WebSocket        RPC Pool         Alerts
-                         (onLogs)      (tx fetch + retry)
-```
+Most crypto dashboards only display price data.
 
-### Key services
+Solana Whale Sentinel focuses on **actionable on-chain intelligence**:
 
-#### Birdeye (market data partner)
-- **`/defi/multi_price`** — batch token price + 24 h change + volume for SOL, JUP, BONK, WIF, PYTH, RAY
-- **`/defi/price`** — single-token price used for the SOL market overview strip
-- **`/defi/ohlcv`** — candlestick data powering `PriceChart`; time resolution adapts to the selected range (1 m → 1 D)
-
-#### QuickNode (RPC partner)
-- **Stable WebSocket connection** (`streamConnection`) — dedicated to `onLogs` subscriptions across all tracked DEX programs; never rotated
-- **Rotating RPC pool** (`fetchConnection`) — used exclusively for `getParsedTransaction`; auto-rotates on timeout to maintain liveness
-
-#### Solflare (wallet partner)
-- Wallet adapter integration for transaction signing and portfolio context
+- Detects large whale accumulation/distribution in real time  
+- Streams live Solana transactions via QuickNode WebSockets  
+- Adds Birdeye-powered token safety scoring  
+- Provides institutional-grade trading intelligence panels  
+- Uses secure server-side API routing (no exposed keys)
 
 ---
 
-## Real-data strategy
+# 🖥 Dashboard Features
 
-### `useMarketData.ts`
-The hook was refactored from a `Math.random()` random-walk simulation to a **two-tier live data pipeline**:
-
-1. **Primary** — Birdeye `multi_price` endpoint polled every 15 s for low-latency price ticks; full refresh every 60 s
-2. **Fallback** — conservative static prices used only when Birdeye is unreachable; *never cached*, so the next poll retries the live feed immediately
-
-### `PriceChart.tsx`
-The chart was refactored from procedurally-generated candles to **real Birdeye OHLCV data**:
-
-- Each time-range button maps to a Birdeye `type` param (`1m`, `5m`, `30m`, `4H`, `1D`) and a lookback window
-- The last bar is refreshed live every 15 s via a lightweight poll, replacing the old random perturbation loop
-- Graceful error state with a one-click retry; stale candles remain visible during background refreshes
-
-### `stream.service.ts` (backend)
-- Subscribes to 5 major DEX programs (Jupiter v4/v6, Raydium, Orca, Serum)
-- Filters swaps above a **200 SOL whale threshold**
-- Queues transactions outside the WebSocket callback to prevent blocking
-- Sends classified signals (`WHALE_BUY` / `WHALE_SELL`) over Socket.IO to the frontend and via Telegram
+## 📈 Real-Time Market Intelligence
+- Live Solana market tracking  
+- Trending token analytics  
+- Whale flow monitoring  
+- Smart money tracking  
+- Market momentum analysis  
 
 ---
 
-## Setup
+## 🐋 Whale Monitoring Engine
+- Real-time whale transaction parsing  
+- Large transaction detection  
+- Buy/sell sentiment tracking  
+- High-value alerts  
+- Multi-panel whale feed  
 
+---
+
+## 🛡 Token Safety Analysis (Birdeye)
+
+- Mint authority detection  
+- Creator concentration analysis  
+- Liquidity visibility  
+- Rug-risk indicators  
+- Automated safety score badges  
+
+---
+
+## 📊 Institutional Trading UI
+
+- Bloomberg-style terminal layout  
+- TradingView-inspired charts  
+- High-density analytics panels  
+- Dark fintech UI aesthetic  
+- Responsive dashboard system  
+
+---
+
+## 🔌 Solflare Wallet Integration
+
+- Wallet-first onboarding  
+- Transaction signing support  
+- Persistent sessions  
+- Live account state updates  
+
+---
+
+# ⚡ Architecture Overview
+
+
+QuickNode WebSocket Stream
+↓
+Solana onLogs Events
+↓
+Whale Signal Engine
+↓
+Supabase Edge Functions
+↓
+Birdeye Market APIs
+↓
+React Trading Terminal UI
+
+
+---
+
+# 🧠 Core Infrastructure
+
+## 1. Birdeye Data Layer
+
+Securely proxied via Supabase Edge Functions.
+
+### Endpoints Used
+- `GET /v2/token/ohlcv`
+  - Candlestick charts
+  - Multi-timeframe visualization (1H, 4H, 1D, 7D)
+
+- `GET /defi/token_trending`
+  - Market momentum tracking  
+  - Trending tokens feed  
+
+- `GET /defi/token_security`
+  - Token safety scoring  
+  - Risk analysis & validation  
+
+---
+
+## 2. QuickNode Streaming Engine
+
+- WebSocket-based Solana event streaming  
+- `onLogs` subscription processing  
+- Real-time whale detection system  
+- DEX activity monitoring (Jupiter, Raydium)  
+
+---
+
+## 3. Secure Backend Architecture
+
+- All API keys remain server-side  
+- Frontend acts as **data consumer only**  
+- Supabase Edge Functions handle all external calls  
+
+### Supports:
+- Rate limiting  
+- Caching  
+- API rotation  
+- Secure websocket relays  
+
+---
+
+# 🛠 Tech Stack
+
+## Frontend
+- React  
+- TypeScript  
+- Vite  
+- Tailwind CSS  
+
+## Blockchain / Data
+- Solana Web3.js  
+- QuickNode RPC + WebSockets  
+- Birdeye API  
+
+## Backend
+- Supabase  
+- Edge Functions (Deno runtime)  
+
+## Visualization
+- lightweight-charts  
+
+---
+
+# 📂 Project Structure
+
+
+src/
+├── components/
+├── hooks/
+├── lib/
+├── types/
+├── config.ts
+├── App.tsx
+└── main.tsx
+
+supabase/
+└── functions/
+├── birdeye-proxy/
+└── quicknode-rpc/
+
+
+---
+
+# 🚀 Local Development Setup
+
+## 1. Clone Repo
 ```bash
-# 1. Install dependencies
+git clone https://github.com/your-username/solana-whale-sentinel.git
+cd solana-whale-sentinel
+```
+
+## 2. Install Dependencies
+```bash
 npm install
+```
+## 3. Environment Variables
+```bash
+VITE_SUPABASE_URL=your_supabase_project_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
 
-# 2. Configure environment
-cp .env.example .env
-# Fill in:
-#   QUICKNODE_API_URL=
-#   QUICKNODE_WSS_URL=
-#   BIRDEYE_API_KEY=
-#   TELEGRAM_BOT_TOKEN=
-#   TELEGRAM_CHAT_ID=
+## 4. Supabase Secrets (Server-side)
+```bash
+BIRDEYE_API_KEY=your_birdeye_api_key
+QUICKNODE_RPC_URL=your_rpc_url
+QUICKNODE_WSS_URL=your_wss_url
+```
 
-# 3. Start backend
-npm run dev:server
-
-# 4. Start frontend
+## 5. Run Dev Server
+```bash
 npm run dev
 ```
 
----
+Open:
 
-## Partner integrations
-
-| Partner | Integration type | Where |
-|---|---|---|
-| **Birdeye** | REST API (market data, OHLCV) | `useMarketData.ts`, `PriceChart.tsx` |
-| **QuickNode** | WebSocket + RPC | `stream.service.ts` |
-| **Solflare** | Wallet adapter | `WalletProvider`, transaction signing |
-
----
-
-## Project structure
-
-```
-src/
-├── components/
-│   └── PriceChart.tsx        # Real OHLCV chart (Birdeye)
-├── hooks/
-│   └── useMarketData.ts      # Live token prices (Birdeye)
-├── services/
-│   ├── stream.service.ts     # QuickNode WebSocket listener
-│   ├── signal.service.ts     # Whale signal classifier
-│   └── alert.service.ts      # Telegram alerts
-├── config/
-│   └── index.ts              # API helpers (birdeye(), coingecko(), getCached()…)
-└── types/
-    └── index.ts              # Token, MarketOverview, ChartCandle, TimeRange
+```bash
+http://localhost:5173
 ```
 
 ---
 
-## Built with
+# 📡 Live Data Flow
+Market Data
+Birdeye → Edge Functions → UI
+Whale Events
+QuickNode → Signal Engine → Whale Feed
+Token Security
+Birdeye Security API → Risk Engine → UI Badges
+---
+# 📊 Key Panels
 
-- **Vite + React + TypeScript** — frontend toolchain
-- **Tailwind CSS** — utility-first styling (terminal theme)
-- **Eitherway** — initial UI scaffolding and component architecture
-- **Birdeye API** — on-chain market data
-- **QuickNode** — Solana RPC & WebSocket infrastructure  
-- **Solflare** — wallet connectivity
-- **Socket.IO** — real-time signal push to browser
-- **Telegram Bot API** — whale alert notifications
-
+| Panel      | Purpose                          |
+|------------|----------------------------------|
+| Overview   | Market snapshot + sentiment      |
+| Chart      | SOL candlestick visualization    |
+| Whales     | Whale transaction feed          |
+| Signals    | Smart money detection           |
+| Analytics  | Market metrics                  |
+| Portfolio  | Wallet tracking                 |
+| Alerts     | Whale notifications             |
 ---
 
-*Submitted to Solana Frontier Hackathon · May 2026*
+# 🔒 Production Design Goals
+Real-time responsiveness
+Secure API architecture
+Institutional-grade UI
+Typed data pipelines
+Scalable websocket system
+Maintainable React structure
+---
+
+# 🏆 Competition Alignment
+Utility (30%)
+
+Transforms raw blockchain data into actionable trading intelligence.
+
+Technical Depth (25%)
+WebSocket streaming
+Multi-source aggregation
+Secure backend proxy architecture
+Presentation (15%)
+
+Bloomberg-style institutional trading interface.
+
+# 👨‍💻 Author
+
+Built by Kehinde Alao
+For Birdeye Data BIP Competition

@@ -1,188 +1,62 @@
-import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react'
-import { birdeye } from '../config'
+import React, { useMemo, useState, useEffect } from 'react'
 import type { ChartCandle, TimeRange } from '../types'
+import { generateCandles } from '../lib/mockData'
 
 interface Props {
-  symbol?:    string
-  address?:   string   // SPL token mint address; falls back to SOL if omitted
-  basePrice?: number   // Only used as an initial placeholder while the first fetch loads
-  height?:    number
+  symbol?: string
+  basePrice?: number
+  height?: number
 }
 
-/**
- * ============================================
- * BIRDEYE OHLCV MAPPING
- * GET /defi/ohlcv — returns { data: { items: OHLCVItem[] } }
- * Docs: https://docs.birdeye.so/reference/get_defi-ohlcv
- * ============================================
- */
-interface BirdeyeOHLCV {
-  unixTime: number
-  open:     number
-  high:     number
-  low:      number
-  close:    number
-  volume:   number
-}
+export default function PriceChart({ symbol = 'SOL', basePrice = 158, height = 240 }: Props) {
+  const [timeRange, setTimeRange] = useState<TimeRange>('1d')
+  const [chartType, setChartType] = useState<'candle' | 'line'>('candle')
+  const [candles, setCandles] = useState<ChartCandle[]>([])
+  const [hovered, setHovered] = useState<ChartCandle | null>(null)
+  const [hoveredX, setHoveredX] = useState(0)
 
-const SOL_MINT = 'So11111111111111111111111111111111111111112'
-
-/** Map our UI TimeRange to Birdeye's `type` param and lookback window (seconds) */
-const RANGE_CONFIG: Record<TimeRange, { type: string; lookback: number }> = {
-  '1h':  { type: '1m',  lookback: 60 * 60          },
-  '4h':  { type: '5m',  lookback: 4  * 60 * 60     },
-  '1d':  { type: '30m', lookback: 24 * 60 * 60     },
-  '7d':  { type: '4H',  lookback: 7  * 24 * 60 * 60 },
-  '30d': { type: '1D',  lookback: 30 * 24 * 60 * 60 },
-}
-
-async function fetchOHLCV(
-  address:   string,
-  timeRange: TimeRange
-): Promise<ChartCandle[]> {
-  const { type, lookback } = RANGE_CONFIG[timeRange]
-  const now       = Math.floor(Date.now() / 1000)
-  const timeFrom  = now - lookback
-
-  const url = birdeye(
-    `/defi/ohlcv?address=${address}&type=${type}&time_from=${timeFrom}&time_to=${now}`
-  )
-
-  const res = await fetch(url, { signal: AbortSignal.timeout(10_000) })
-  if (!res.ok) throw new Error(`Birdeye OHLCV HTTP ${res.status}`)
-
-  const data = await res.json()
-  const items: BirdeyeOHLCV[] = data?.data?.items ?? []
-
-  if (!items.length) throw new Error('Birdeye OHLCV: empty response')
-
-  return items.map(item => ({
-    time:   item.unixTime * 1000,
-    open:   item.open,
-    high:   item.high,
-    low:    item.low,
-    close:  item.close,
-    volume: item.volume,
-  }))
-}
-
-/**
- * ============================================
- * COMPONENT
- * ============================================
- */
-export default function PriceChart({
-  symbol    = 'SOL',
-  address   = SOL_MINT,
-  basePrice = 158,
-  height    = 240,
-}: Props) {
-  const [timeRange,  setTimeRange]  = useState<TimeRange>('1d')
-  const [chartType,  setChartType]  = useState<'candle' | 'line'>('candle')
-  const [candles,    setCandles]    = useState<ChartCandle[]>([])
-  const [fetchError, setFetchError] = useState<string | null>(null)
-  const [isLoading,  setIsLoading]  = useState(true)
-  const [hovered,    setHovered]    = useState<ChartCandle | null>(null)
-  const [hoveredX,   setHoveredX]   = useState(0)
-
-  const liveTickRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  // ------------------------------------------------------------------
-  // Load OHLCV from Birdeye whenever address or timeRange changes
-  // ------------------------------------------------------------------
-  const loadCandles = useCallback(async () => {
-    setIsLoading(true)
-    setFetchError(null)
-    try {
-      const data = await fetchOHLCV(address, timeRange)
-      setCandles(data)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to load chart'
-      console.warn(`⚠️ PriceChart: ${msg}`)
-      setFetchError(msg)
-      // Keep stale candles visible if we had them; otherwise clear
-      if (!candles.length) setCandles([])
-    } finally {
-      setIsLoading(false)
-    }
-  }, [address, timeRange])
+  const counts: Record<TimeRange, number> = { '1h': 60, '4h': 96, '1d': 48, '7d': 168, '30d': 180 }
 
   useEffect(() => {
-    loadCandles()
-  }, [loadCandles])
+    setCandles(generateCandles(counts[timeRange], basePrice))
+  }, [timeRange, basePrice])
 
-  // ------------------------------------------------------------------
-  // Live last-candle refresh — polls the latest 1-bar OHLCV from
-  // Birdeye every 15 s to keep the right edge of the chart current.
-  // This replaces the old Math.random() simulation.
-  // ------------------------------------------------------------------
+  // Update last candle to simulate live
   useEffect(() => {
-    if (liveTickRef.current) clearInterval(liveTickRef.current)
+    const t = setInterval(() => {
+      setCandles(prev => {
+        if (!prev.length) return prev
+        const last = prev[prev.length - 1]
+        const noise = (Math.random() - 0.5) * basePrice * 0.003
+        return [...prev.slice(0, -1), {
+          ...last,
+          close: last.close + noise,
+          high: Math.max(last.high, last.close + noise),
+          low: Math.min(last.low, last.close + noise),
+        }]
+      })
+    }, 3000)
+    return () => clearInterval(t)
+  }, [basePrice])
 
-    liveTickRef.current = setInterval(async () => {
-      try {
-        const { type } = RANGE_CONFIG[timeRange]
-        const now  = Math.floor(Date.now() / 1000)
-        // Fetch only the last 2 bars to minimise payload
-        const from = now - 2 * (RANGE_CONFIG[timeRange].lookback / 60)
-        const url  = birdeye(
-          `/defi/ohlcv?address=${address}&type=${type}&time_from=${from}&time_to=${now}`
-        )
-        const res = await fetch(url, { signal: AbortSignal.timeout(5_000) })
-        if (!res.ok) return
-        const data = await res.json()
-        const items: BirdeyeOHLCV[] = data?.data?.items ?? []
-        if (!items.length) return
-
-        const latestBar = items[items.length - 1]
-        const liveCandle: ChartCandle = {
-          time:   latestBar.unixTime * 1000,
-          open:   latestBar.open,
-          high:   latestBar.high,
-          low:    latestBar.low,
-          close:  latestBar.close,
-          volume: latestBar.volume,
-        }
-
-        setCandles(prev => {
-          if (!prev.length) return prev
-          const last = prev[prev.length - 1]
-          // Same bar — update in place; new bar — append
-          if (last.time === liveCandle.time) {
-            return [...prev.slice(0, -1), liveCandle]
-          }
-          return [...prev, liveCandle]
-        })
-      } catch {
-        // Silently skip failed ticks
-      }
-    }, 15_000)
-
-    return () => {
-      if (liveTickRef.current) clearInterval(liveTickRef.current)
-    }
-  }, [address, timeRange])
-
-  // ------------------------------------------------------------------
-  // Derived chart geometry
-  // ------------------------------------------------------------------
-  const { minP, maxP, maxV } = useMemo(() => {
-    if (!candles.length) return { minP: basePrice * 0.98, maxP: basePrice * 1.02, maxV: 1 }
+  const { minP, maxP, minV, maxV } = useMemo(() => {
+    if (!candles.length) return { minP: 0, maxP: 1, minV: 0, maxV: 1 }
     const highs = candles.map(c => c.high)
-    const lows  = candles.map(c => c.low)
-    const vols  = candles.map(c => c.volume)
-    const pad   = (Math.max(...highs) - Math.min(...lows)) * 0.08
+    const lows = candles.map(c => c.low)
+    const vols = candles.map(c => c.volume)
+    const pad = (Math.max(...highs) - Math.min(...lows)) * 0.08
     return {
-      minP: Math.min(...lows)  - pad,
+      minP: Math.min(...lows) - pad,
       maxP: Math.max(...highs) + pad,
-      maxV: Math.max(...vols)  * 1.2 || 1,
+      minV: 0,
+      maxV: Math.max(...vols) * 1.2,
     }
-  }, [candles, basePrice])
+  }, [candles])
 
-  const W      = 820
+  const W = 820
   const chartH = height - 60
-  const volH   = 40
-  const candleW = Math.max(2, Math.floor((W - 40) / Math.max(candles.length, 1)) - 1)
+  const volH = 40
+  const candleW = Math.max(2, Math.floor((W - 40) / candles.length) - 1)
 
   function priceToY(p: number) {
     return chartH - ((p - minP) / (maxP - minP)) * chartH
@@ -191,75 +65,57 @@ export default function PriceChart({
     return (v / maxV) * volH
   }
 
-  const lastCandle  = candles[candles.length - 1]
+  const lastCandle = candles[candles.length - 1]
   const firstCandle = candles[0]
   const totalChange = firstCandle && lastCandle
     ? ((lastCandle.close - firstCandle.open) / firstCandle.open) * 100
     : 0
 
+  // Grid lines
   const gridLines = useMemo(() => {
     if (maxP === minP) return []
-    const step = (maxP - minP) / 5
+    const range = maxP - minP
+    const step = range / 5
     return Array.from({ length: 6 }, (_, i) => minP + step * i)
   }, [minP, maxP])
 
   const lineData = useMemo(() => {
     if (!candles.length) return ''
-    return candles
-      .map((c, i) => {
-        const x = 20 + i * ((W - 40) / candles.length)
-        const y = priceToY(c.close)
-        return `${i === 0 ? 'M' : 'L'} ${x},${y}`
-      })
-      .join(' ')
+    return candles.map((c, i) => {
+      const x = 20 + i * ((W - 40) / candles.length)
+      const y = priceToY(c.close)
+      return `${i === 0 ? 'M' : 'L'} ${x},${y}`
+    }).join(' ')
   }, [candles, minP, maxP])
 
   const areaData = useMemo(() => {
     if (!candles.length || !lineData) return ''
+    const last = candles[candles.length - 1]
     const lastX = 20 + (candles.length - 1) * ((W - 40) / candles.length)
     return `${lineData} L ${lastX},${chartH} L 20,${chartH} Z`
   }, [lineData, candles, chartH])
 
   function handleMouseMove(e: React.MouseEvent<SVGElement>) {
     const rect = e.currentTarget.getBoundingClientRect()
-    const x    = e.clientX - rect.left
-    const idx  = Math.max(
-      0,
-      Math.min(
-        candles.length - 1,
-        Math.floor((x - 20) / ((W - 40) / Math.max(candles.length, 1)))
-      )
-    )
-    if (candles[idx]) {
-      setHovered(candles[idx])
-      setHoveredX(20 + idx * ((W - 40) / candles.length))
-    }
+    const x = e.clientX - rect.left
+    const idx = Math.max(0, Math.min(candles.length - 1, Math.floor((x - 20) / ((W - 40) / candles.length))))
+    if (candles[idx]) { setHovered(candles[idx]); setHoveredX(20 + idx * ((W - 40) / candles.length)) }
   }
 
-  const fmtPrice = (p: number) =>
-    p < 0.0001 ? p.toExponential(3) : p < 10 ? p.toFixed(4) : p.toFixed(2)
+  const fmtPrice = (p: number) => p < 0.01 ? p.toExponential(3) : p < 10 ? p.toFixed(4) : p.toFixed(2)
+  const fmtTime = (ts: number) => new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
 
   return (
     <div className="flex flex-col h-full select-none">
-      {/* Header */}
+      {/* Chart header */}
       <div className="flex items-center gap-4 px-3 py-2 border-b border-terminal-border flex-none">
         <div className="flex items-center gap-2">
           <span className="text-white font-mono font-bold text-sm">{symbol}/USD</span>
           {lastCandle && (
             <>
-              <span className="text-white font-mono text-sm tabular-nums">
-                ${fmtPrice(lastCandle.close)}
-              </span>
-              <span
-                className={`text-xs font-mono font-bold ${
-                  totalChange >= 0 ? 'text-whale-green' : 'text-whale-red'
-                }`}
-              >
+              <span className="text-white font-mono text-sm tabular-nums">${fmtPrice(lastCandle.close)}</span>
+              <span className={`text-xs font-mono font-bold ${totalChange >= 0 ? 'text-whale-green' : 'text-whale-red'}`}>
                 {totalChange >= 0 ? '+' : ''}{totalChange.toFixed(2)}%
-              </span>
-              {/* Live data badge */}
-              <span className="text-[10px] font-mono text-whale-blue border border-whale-blue/40 px-1 rounded">
-                LIVE
               </span>
             </>
           )}
@@ -276,16 +132,14 @@ export default function PriceChart({
         )}
 
         <div className="ml-auto flex items-center gap-2">
-          {/* Chart type toggle */}
+          {/* Chart type */}
           <div className="flex items-center gap-0.5 border border-terminal-border rounded overflow-hidden">
             {(['candle', 'line'] as const).map(ct => (
               <button
                 key={ct}
                 onClick={() => setChartType(ct)}
                 className={`px-2 py-0.5 text-xs font-mono transition-colors ${
-                  chartType === ct
-                    ? 'bg-terminal-accent text-white'
-                    : 'text-whale-dim hover:text-white'
+                  chartType === ct ? 'bg-terminal-accent text-white' : 'text-whale-dim hover:text-white'
                 }`}
               >
                 {ct === 'candle' ? '⚪' : '〰'} {ct.toUpperCase()}
@@ -300,9 +154,7 @@ export default function PriceChart({
                 key={tr}
                 onClick={() => setTimeRange(tr)}
                 className={`px-2 py-0.5 text-xs font-mono transition-colors ${
-                  timeRange === tr
-                    ? 'bg-terminal-accent text-white'
-                    : 'text-whale-dim hover:text-white'
+                  timeRange === tr ? 'bg-terminal-accent text-white' : 'text-whale-dim hover:text-white'
                 }`}
               >
                 {tr.toUpperCase()}
@@ -312,21 +164,11 @@ export default function PriceChart({
         </div>
       </div>
 
-      {/* Chart body */}
+      {/* SVG chart */}
       <div className="flex-1 relative overflow-hidden">
-        {isLoading && !candles.length ? (
+        {candles.length === 0 ? (
           <div className="flex items-center justify-center h-full text-whale-dim text-xs font-mono">
-            Fetching OHLCV from Birdeye…
-          </div>
-        ) : fetchError && !candles.length ? (
-          <div className="flex flex-col items-center justify-center h-full gap-2">
-            <span className="text-whale-red text-xs font-mono">⚠️ {fetchError}</span>
-            <button
-              onClick={loadCandles}
-              className="text-xs font-mono text-whale-blue hover:underline"
-            >
-              Retry
-            </button>
+            Loading chart data...
           </div>
         ) : (
           <svg
@@ -338,7 +180,7 @@ export default function PriceChart({
             onMouseMove={handleMouseMove}
             onMouseLeave={() => setHovered(null)}
           >
-            {/* Price grid */}
+            {/* Grid lines */}
             {gridLines.map((price, i) => (
               <g key={i}>
                 <line
@@ -359,42 +201,33 @@ export default function PriceChart({
               <>
                 <defs>
                   <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%"
-                      stopColor={totalChange >= 0 ? '#00d68f' : '#ff4757'}
-                      stopOpacity="0.15"
-                    />
-                    <stop offset="100%"
-                      stopColor={totalChange >= 0 ? '#00d68f' : '#ff4757'}
-                      stopOpacity="0.02"
-                    />
+                    <stop offset="0%" stopColor={totalChange >= 0 ? '#00d68f' : '#ff4757'} stopOpacity="0.15" />
+                    <stop offset="100%" stopColor={totalChange >= 0 ? '#00d68f' : '#ff4757'} stopOpacity="0.02" />
                   </linearGradient>
                 </defs>
                 <path d={areaData} fill="url(#areaGrad)" />
-                <path
-                  d={lineData} fill="none"
-                  stroke={totalChange >= 0 ? '#00d68f' : '#ff4757'}
-                  strokeWidth="1.5" strokeLinejoin="round"
-                />
+                <path d={lineData} fill="none" stroke={totalChange >= 0 ? '#00d68f' : '#ff4757'} strokeWidth="1.5" strokeLinejoin="round" />
               </>
             ) : (
+              // Candles
               candles.map((c, i) => {
-                const x      = 20 + i * ((W - 40) / candles.length)
-                const isUp   = c.close >= c.open
-                const color  = isUp ? '#00d68f' : '#ff4757'
+                const x = 20 + i * ((W - 40) / candles.length)
+                const isUp = c.close >= c.open
+                const color = isUp ? '#00d68f' : '#ff4757'
                 const bodyTop = priceToY(Math.max(c.open, c.close))
                 const bodyBot = priceToY(Math.min(c.open, c.close))
-                const bodyH   = Math.max(1, bodyBot - bodyTop)
+                const bodyH = Math.max(1, bodyBot - bodyTop)
+
                 return (
                   <g key={i}>
-                    <line
-                      x1={x} y1={priceToY(c.high)}
-                      x2={x} y2={priceToY(c.low)}
-                      stroke={color} strokeWidth="0.8"
-                    />
+                    <line x1={x} y1={priceToY(c.high)} x2={x} y2={priceToY(c.low)} stroke={color} strokeWidth="0.8" />
                     <rect
-                      x={x - candleW / 2} y={bodyTop}
-                      width={candleW} height={bodyH}
-                      fill={color} fillOpacity={isUp ? 0.9 : 0.85}
+                      x={x - candleW / 2}
+                      y={bodyTop}
+                      width={candleW}
+                      height={bodyH}
+                      fill={isUp ? color : color}
+                      fillOpacity={isUp ? 0.9 : 0.85}
                     />
                   </g>
                 )
@@ -403,7 +236,7 @@ export default function PriceChart({
 
             {/* Volume bars */}
             {candles.map((c, i) => {
-              const x    = 20 + i * ((W - 40) / candles.length)
+              const x = 20 + i * ((W - 40) / candles.length)
               const isUp = c.close >= c.open
               return (
                 <rect
@@ -427,25 +260,24 @@ export default function PriceChart({
               />
             )}
 
-            {/* Last-price label */}
+            {/* Last price line */}
             {lastCandle && (
               <>
                 <line
                   x1={0} y1={priceToY(lastCandle.close)}
                   x2={W} y2={priceToY(lastCandle.close)}
-                  stroke={lastCandle.close >= (firstCandle?.open ?? 0) ? '#00d68f' : '#ff4757'}
+                  stroke={lastCandle.close >= (firstCandle?.open || 0) ? '#00d68f' : '#ff4757'}
                   strokeWidth="0.5" strokeDasharray="4,4"
                 />
                 <rect
                   x={W - 70} y={priceToY(lastCandle.close) - 8}
                   width={68} height={16}
-                  fill={lastCandle.close >= (firstCandle?.open ?? 0) ? '#00d68f' : '#ff4757'}
+                  fill={lastCandle.close >= (firstCandle?.open || 0) ? '#00d68f' : '#ff4757'}
                   rx="2"
                 />
                 <text
                   x={W - 36} y={priceToY(lastCandle.close) + 4}
-                  fill="#0a0a0b" fontSize="9" fontFamily="monospace"
-                  fontWeight="bold" textAnchor="middle"
+                  fill="#0a0a0b" fontSize="9" fontFamily="monospace" fontWeight="bold" textAnchor="middle"
                 >
                   ${fmtPrice(lastCandle.close)}
                 </text>
